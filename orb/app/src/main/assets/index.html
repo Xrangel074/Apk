@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Шар</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#050610;
+    --ink:#e9eeff;
+    --ink-dim:rgba(233,238,255,.55);
+    --line:rgba(233,238,255,.16);
+    --panel:rgba(14,16,32,.82);
+    --accent:#ff7a59;
+    --err:#ff8a7a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"Onest",system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden;
+    -webkit-tap-highlight-color:transparent}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+  /* tap target over the orb */
+  #hit{position:fixed;left:50%;top:50%;width:min(66vmin,520px);height:min(66vmin,520px);
+    transform:translate(-50%,-50%);border-radius:50%;border:0;background:transparent;cursor:pointer;padding:0}
+  #hit:focus-visible{outline:2px solid var(--ink-dim);outline-offset:6px}
+
+  /* captions */
+  #captions{position:fixed;left:50%;bottom:calc(11vh + env(safe-area-inset-bottom));transform:translateX(-50%);
+    width:min(34rem,88vw);text-align:center;pointer-events:none}
+  #userLine{min-height:1.4em;font-size:.95rem;font-weight:300;color:var(--ink-dim);margin-bottom:.6rem;
+    transition:opacity .4s}
+  #botLine{min-height:3.2em;font-size:1.2rem;line-height:1.45;font-weight:400;transition:opacity .4s}
+  #botLine.error{color:var(--err);font-size:1rem}
+
+  /* typed input */
+  #typed{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom));transform:translateX(-50%);
+    width:min(28rem,86vw);background:transparent;border:0;border-bottom:1px solid var(--line);
+    color:var(--ink);font:inherit;font-size:.95rem;text-align:center;padding:.5rem .25rem;outline:none;
+    transition:border-color .2s}
+  #typed::placeholder{color:rgba(233,238,255,.32)}
+  #typed:focus{border-color:rgba(233,238,255,.5)}
+
+  /* hidden API button */
+  #gear{position:fixed;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));
+    width:44px;height:44px;border-radius:50%;border:0;background:transparent;color:var(--ink);
+    display:grid;place-items:center;cursor:pointer;opacity:0;transition:opacity .25s,background .25s}
+  #gear:hover,#gear:focus-visible,#gear[aria-expanded="true"]{opacity:.8;background:rgba(255,255,255,.07)}
+  #gear:focus-visible{outline:2px solid var(--ink-dim)}
+  @media (hover:none){ #gear{opacity:.12} }
+  #gear svg{width:20px;height:20px}
+
+  /* settings panel */
+  #panel{position:fixed;top:60px;right:max(12px,env(safe-area-inset-right));width:min(22rem,calc(100vw - 24px));
+    max-height:calc(100vh - 80px);overflow:auto;background:var(--panel);
+    -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
+    border:1px solid var(--line);border-radius:16px;padding:1.1rem 1.1rem 1rem;
+    opacity:0;transform:translateY(-6px) scale(.98);transform-origin:top right;pointer-events:none;
+    transition:opacity .2s,transform .2s}
+  #panel.open{opacity:1;transform:none;pointer-events:auto}
+  #panel h2{margin:0 0 .9rem;font-size:1rem;font-weight:500}
+  label{display:block;font-size:.8rem;color:var(--ink-dim);margin:.8rem 0 .3rem}
+  input[type=password],input[type=text],select,textarea{
+    width:100%;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:10px;
+    color:var(--ink);font:inherit;font-size:.9rem;padding:.55rem .65rem;outline:none}
+  textarea{resize:vertical;min-height:5.2rem;line-height:1.4}
+  input:focus,select:focus,textarea:focus{border-color:rgba(233,238,255,.5)}
+  select option{background:#0e1020;color:var(--ink)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .row{display:flex;justify-content:space-between;align-items:baseline}
+  .row output{font-size:.8rem;color:var(--ink-dim)}
+  .actions{display:flex;gap:.5rem;margin-top:1.1rem}
+  button.btn{flex:1;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);
+    font:inherit;font-size:.9rem;padding:.6rem .8rem;cursor:pointer}
+  button.btn.primary{background:var(--accent);border-color:var(--accent);color:#1a0b06;font-weight:500}
+  button.btn:focus-visible{outline:2px solid var(--ink-dim);outline-offset:2px}
+  .note{font-size:.75rem;color:var(--ink-dim);line-height:1.45;margin:.8rem 0 0}
+  #modelPick{margin-top:.45rem}
+  #modelStatus{margin-top:.4rem}
+  #modelStatus.bad{color:var(--err)}
+  [hidden]{display:none !important}
+
+  @media (prefers-reduced-motion:reduce){ #panel{transition:none} }
+</style>
+</head>
+<body>
+
+<canvas id="orb"></canvas>
+<button id="hit" aria-label="Говорить"></button>
+
+<div id="captions" aria-live="polite">
+  <div id="userLine"></div>
+  <div id="botLine"></div>
+</div>
+
+<input id="typed" type="text" placeholder="Или напишите сообщение" autocomplete="off" aria-label="Сообщение">
+
+<button id="gear" aria-label="Подключить API" aria-expanded="false" aria-controls="panel">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>
+  </svg>
+</button>
+
+<section id="panel" aria-label="Подключение API">
+  <h2>Подключение</h2>
+
+  <label for="key">Ключ API</label>
+  <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="xai-...">
+
+  <label for="base">Адрес API</label>
+  <input id="base" type="text" spellcheck="false" inputmode="url">
+
+  <label for="model">Модель</label>
+  <input id="model" type="text" spellcheck="false">
+  <select id="modelPick" hidden aria-label="Доступные модели"></select>
+  <p class="note" id="modelStatus" hidden></p>
+
+  <label for="persona">Характер</label>
+  <textarea id="persona"></textarea>
+
+  <label for="voice">Голос</label>
+  <select id="voice"></select>
+
+  <label for="pitch" class="row"><span>Высота голоса</span><output id="pitchOut"></output></label>
+  <input id="pitch" type="range" min="0.5" max="2" step="0.05">
+
+  <label for="rate" class="row"><span>Скорость речи</span><output id="rateOut"></output></label>
+  <input id="rate" type="range" min="0.7" max="1.6" step="0.05">
+
+  <div class="actions">
+    <button class="btn" id="test" type="button">Проверить голос</button>
+    <button class="btn primary" id="save" type="button">Сохранить</button>
+  </div>
+  <p class="note">Ключ хранится только в этом браузере и отправляется только на указанный адрес API. Историю диалога можно сбросить, перезагрузив страницу.</p>
+</section>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+
+  /* ---------- settings ---------- */
+  const DEFAULTS = {
+    key: '',
+    model: 'grok-4',
+    base: 'https://api.x.ai/v1',
+    persona: 'Ты — Том, весёлый говорящий кот. Отвечай по-русски, коротко: одно–три предложения, без списков и markdown.',
+    voice: '',
+    pitch: 1.5,
+    rate: 1.05
+  };
+  let cfg = { ...DEFAULTS };
+  try { cfg = { ...DEFAULTS, ...JSON.parse(localStorage.getItem('orb.settings') || '{}') }; } catch (e) {}
+
+  /* ---------- state ---------- */
+  const PAL = {
+    idle:      [[.10,.18,.55],[.25,.55,.95],[.55,.95,1.0]],
+    listening: [[.05,.35,.36],[.15,.75,.65],[.70,1.0,.80]],
+    thinking:  [[.30,.10,.55],[.65,.25,.85],[1.0,.60,.95]],
+    speaking:  [[.55,.15,.35],[1.0,.45,.35],[1.0,.85,.50]],
+    error:     [[.40,.05,.08],[.85,.15,.20],[1.0,.55,.50]]
+  };
+  let state = 'idle';
+  let cur = JSON.parse(JSON.stringify(PAL.idle));
+  let level = 0, spike = 0, micBump = 0, speakAmt = 0, thinkAmt = 0;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function setState(s){ state = s; }
+
+  /* ---------- WebGL orb ---------- */
+  const cv = $('#orb');
+  const gl = cv.getContext('webgl', { antialias: false, alpha: false });
+
+  const VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+  const FS = `
+precision highp float;
+uniform vec2 u_res; uniform float u_time; uniform float u_level; uniform float u_speak; uniform float u_think;
+uniform vec3 u_a; uniform vec3 u_b; uniform vec3 u_c;
+
+float hash(vec3 p){ p=fract(p*0.3183099+.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+float noise(vec3 x){
+  vec3 i=floor(x); vec3 f=fract(x); f=f*f*(3.0-2.0*f);
+  return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+             mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+}
+float fbm(vec3 p){ float v=0.,a=.5; for(int i=0;i<5;i++){ v+=a*noise(p); p=p*2.02+vec3(1.7,9.2,3.1); a*=.5; } return v; }
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*u_res)/min(u_res.x,u_res.y);
+  float r=length(uv); float ang=atan(uv.y,uv.x); float t=u_time;
+
+  float R=0.30+0.010*sin(t*.8)+0.025*u_level;
+  float wob=u_level*0.030*sin(ang*4.0+t*5.0)+u_level*0.018*sin(ang*7.0-t*7.0);
+  float Rw=R+wob;
+  float d=r-Rw;
+
+  vec3 col=vec3(0.016,0.018,0.035);
+  float glow=exp(-max(d,0.)*6.0)*(0.30+0.55*u_level);
+  col+=mix(u_a,u_b,0.5+0.5*sin(ang+t*.3))*glow*0.6;
+
+  for(int i=0;i<3;i++){
+    float ph=fract(t*0.32+float(i)/3.0);
+    float rr=Rw+ph*0.30;
+    float w=0.005+ph*0.012;
+    float ring=smoothstep(w,0.,abs(r-rr))*(1.-ph)*u_speak*(0.35+u_level);
+    col+=u_c*ring*0.9;
+  }
+
+  if(d<0.01){
+    float z=sqrt(max(Rw*Rw-r*r,0.)); vec3 n=normalize(vec3(uv,z));
+    float spd=0.18+0.5*u_think+0.55*u_level;
+    vec3 p=n*1.6+vec3(0.,0.,t*spd*0.6);
+    vec3 q=vec3(fbm(p+vec3(0.,t*.1,0.)),fbm(p+vec3(5.2,1.3,t*.12)),fbm(p+vec3(2.1,7.4,0.)));
+    float f=fbm(p+(1.5+u_level*2.2)*q);
+    vec3 base=mix(u_a,u_b,smoothstep(.2,.8,f));
+    base=mix(base,u_c,smoothstep(.55,1.,q.x)*(.45+.55*u_level));
+
+    float fres=pow(1.-n.z,2.5);
+    vec3 L=normalize(vec3(-.5,.6,.7));
+    float spec=pow(max(dot(reflect(-L,n),vec3(0,0,1)),0.),40.);
+    float diff=0.35+0.65*max(dot(n,L),0.);
+
+    vec3 inner=base*diff*(0.8+0.6*u_level);
+    inner+=u_c*fres*0.9+vec3(1.)*spec*0.35;
+    inner+=u_b*pow(n.z,6.)*0.25*(0.5+u_level);
+
+    float edge=smoothstep(0.004,-0.004,d);
+    col=mix(col,inner,edge);
+  }
+
+  col*=1.-0.45*dot(uv,uv);
+  col+=(hash(vec3(gl_FragCoord.xy,t))-.5)*0.015;
+  gl_FragColor=vec4(col,1.);
+}`;
+
+  let U = {};
+  if (gl) {
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog); gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    ['u_res','u_time','u_level','u_speak','u_think','u_a','u_b','u_c'].forEach(n => U[n] = gl.getUniformLocation(prog, n));
+  }
+
+  function resize(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.round(innerWidth * dpr);
+    cv.height = Math.round(innerHeight * dpr);
+    if (gl) gl.viewport(0, 0, cv.width, cv.height);
+  }
+  addEventListener('resize', resize); resize();
+
+  function targetLevel(t){
+    if (state === 'speaking')  return Math.min(1, .22 + .2 * (.5 + .5 * Math.sin(t * 9) * Math.sin(t * 3.7)) + spike);
+    if (state === 'listening') return .08 + .05 * Math.sin(t * 2) + micBump;
+    if (state === 'thinking')  return .16;
+    if (state === 'error')     return .2;
+    return .03;
+  }
+
+  let last = performance.now(), clock = 0;
+  function frame(now){
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
+    clock += dt * (reduce ? .3 : 1);
+
+    level += (targetLevel(clock) - level) * .14;
+    spike *= .9; micBump *= .92;
+    speakAmt += ((state === 'speaking' ? 1 : 0) - speakAmt) * .08;
+    thinkAmt += ((state === 'thinking' ? 1 : 0) - thinkAmt) * .08;
+    const tgt = PAL[state];
+    for (let i = 0; i < 3; i++) for (let k = 0; k < 3; k++) cur[i][k] += (tgt[i][k] - cur[i][k]) * .05;
+
+    if (gl) {
+      gl.uniform2f(U.u_res, cv.width, cv.height);
+      gl.uniform1f(U.u_time, clock);
+      gl.uniform1f(U.u_level, level);
+      gl.uniform1f(U.u_speak, speakAmt);
+      gl.uniform1f(U.u_think, thinkAmt);
+      gl.uniform3fv(U.u_a, cur[0]);
+      gl.uniform3fv(U.u_b, cur[1]);
+      gl.uniform3fv(U.u_c, cur[2]);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  /* ---------- captions ---------- */
+  const userLine = $('#userLine'), botLine = $('#botLine');
+  function showUser(t){ userLine.textContent = t || ''; }
+  function showBot(t, isErr){ botLine.textContent = t || ''; botLine.classList.toggle('error', !!isErr); }
+  function fail(msg){
+    setState('error'); showBot(msg, true);
+    setTimeout(() => { if (state === 'error') setState('idle'); }, 2600);
+  }
+
+  /* ---------- voices & speech ---------- */
+  let voices = [];
+  const voiceSel = $('#voice');
+  const NATIVE = !!window.AndroidBridge;
+  function loadVoices(){
+    if (NATIVE) {
+      voices = [];
+      voiceSel.innerHTML = '';
+      voiceSel.add(new Option(AndroidBridge.hasRussian() ? 'Русский голос системы (готов)' : 'Русский голос не установлен — загрузите его', ''));
+      voiceSel.value = '';
+      return;
+    }
+    voices = (window.speechSynthesis ? speechSynthesis.getVoices() : []).slice();
+    voices.sort((a, b) => (b.lang.startsWith('ru') - a.lang.startsWith('ru')) || a.name.localeCompare(b.name));
+    voiceSel.innerHTML = '';
+    const hasRu = voices.some(v => v.lang.toLowerCase().startsWith('ru'));
+    const auto = new Option(!voices.length ? 'Голоса в системе не найдены'
+      : hasRu ? 'Автоматически (русский)' : 'Русского голоса нет, установите его', ''); voiceSel.add(auto);
+    voices.forEach(v => voiceSel.add(new Option(`${v.name} (${v.lang})`, v.name)));
+    voiceSel.value = cfg.voice || '';
+  }
+  if (NATIVE) { loadVoices(); window.refreshVoices = loadVoices; }
+  else if (window.speechSynthesis) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+
+  function pickVoice(){
+    if (cfg.voice) { const v = voices.find(v => v.name === cfg.voice); if (v) return v; }
+    return voices.find(v => v.lang.toLowerCase().startsWith('ru')) || null;
+  }
+
+  let turn = 0, pending = 0, streamDone = true, ctrl = null, rec = null;
+
+  function speak(text, tag){
+    const clean = text.replace(/[*_`#>~]/g, '').replace(/\s+/g, ' ').trim();
+    if (!clean) return;
+    if (NATIVE) { nativeSpeak(clean, tag); return; }
+    if (!window.speechSynthesis) { showBot(clean); fail('Этот браузер не умеет озвучивать текст.'); return; }
+    const u = new SpeechSynthesisUtterance(clean);
+    u.lang = 'ru-RU';
+    const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; }
+    u.pitch = +cfg.pitch; u.rate = +cfg.rate;
+    pending++;
+    let started = false, finished = false;
+    const finish = () => { if (finished) return; finished = true; if (tag !== turn) return; pending--; settle(); };
+    u.onstart = () => { started = true; if (tag !== turn) return; setState('speaking'); showBot(clean); };
+    u.onboundary = () => { if (tag === turn) spike = .45; };
+    u.onend = finish;
+    u.onerror = e => {
+      if (tag === turn && e.error && e.error !== 'canceled' && e.error !== 'interrupted') {
+        showBot(clean);
+        fail('Озвучка не сработала (' + e.error + '). В настройках выберите другой голос.');
+      }
+      finish();
+    };
+    speechSynthesis.resume();
+    speechSynthesis.speak(u);
+    setTimeout(() => {
+      if (!started && !finished && tag === turn) {
+        showBot(clean);
+        fail(voices.length
+          ? 'Звук не пошёл. Выберите другой голос в настройках.'
+          : 'В системе нет голосов для озвучки. Установите русский голос или откройте страницу в другом браузере.');
+        finish();
+      }
+    }, 2500);
+  }
+  const nativeUtt = {}; let nativeId = 0;
+  function nativeSpeak(clean, tag){
+    const id = String(++nativeId);
+    pending++;
+    nativeUtt[id] = { tag, clean, done: false };
+    AndroidBridge.speak(clean, +cfg.pitch, +cfg.rate, id);
+  }
+  window.onNativeTts = (id, ev) => {
+    const u = nativeUtt[id]; if (!u) return;
+    const finish = () => { if (u.done) return; u.done = true; delete nativeUtt[id]; if (u.tag !== turn) return; pending--; settle(); };
+    if (ev === 'start') { if (u.tag === turn) { setState('speaking'); showBot(u.clean); spike = .45; } }
+    else if (ev === 'done') finish();
+    else if (ev.indexOf('error') === 0) {
+      if (u.tag === turn) {
+        showBot(u.clean);
+        fail(ev === 'error:no-voice'
+          ? 'Нет русского голоса. Откроется загрузка — скачайте русский голос и вернитесь в приложение.'
+          : 'Озвучка не сработала (' + ev + ').');
+      }
+      finish();
+    }
+  };
+  window.onNativeStt = (type, a) => {
+    if (type === 'partial') { micBump = .3; showUser(a); }
+    else if (type === 'final') { micBump = .3; showUser(a); ask(a); }
+    else if (type === 'error') {
+      const c = +a;
+      if (c === 6 || c === 7) { setState('idle'); showUser(''); }
+      else if (c === 5) { /* отменено */ }
+      else if (c === 9) fail('Нет доступа к микрофону. Разрешите его в настройках приложения.');
+      else if (c === 1 || c === 2) fail('Для распознавания речи нужен интернет.');
+      else if (c === 8) fail('Распознавание занято, попробуйте ещё раз.');
+      else if (c === 100) fail('Нет службы распознавания речи. Установите «Google» или «Голосовой ввод Google».');
+      else fail('Не удалось распознать речь (код ' + a + ').');
+    }
+  };
+  function settle(){
+    if (pending <= 0 && streamDone && (state === 'speaking' || state === 'thinking')) setState('idle');
+  }
+
+  function stopAll(){
+    turn++; pending = 0; streamDone = true;
+    if (NATIVE) AndroidBridge.stop();
+    else if (window.speechSynthesis) speechSynthesis.cancel();
+    if (ctrl) { ctrl.abort(); ctrl = null; }
+    if (rec) { try { rec.abort(); } catch (e) {} rec = null; }
+    if (NATIVE) AndroidBridge.stopListen();
+  }
+
+  /* ---------- Grok ---------- */
+  const history = [];
+
+  async function ask(text){
+    text = (text || '').trim();
+    if (!text) return;
+    if (!cfg.key) { openPanel(); fail('Сначала подключите API'); return; }
+
+    stopAll();
+    const my = turn;
+    history.push({ role: 'user', content: text });
+    if (history.length > 20) history.splice(0, history.length - 20);
+    showUser(text); showBot('');
+    setState('thinking');
+    streamDone = false;
+    ctrl = new AbortController();
+
+    let full = '', buf = '';
+    const flush = (all) => {
+      for (;;) {
+        const m = buf.search(/[.!?…]\s|\n/);
+        let cut = m >= 0 ? m + 1 : -1;
+        if (cut < 0 && all && buf.trim()) cut = buf.length;
+        if (cut < 0) break;
+        const piece = buf.slice(0, cut);
+        if (piece.trim().length < 12 && !all && m >= 0 && buf.length < 40) break;
+        buf = buf.slice(cut);
+        speak(piece, my);
+      }
+    };
+
+    try {
+      const res = await fetch(cfg.base.replace(/\/+$/, '') + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key },
+        body: JSON.stringify({
+          model: cfg.model,
+          stream: true,
+          messages: [{ role: 'system', content: cfg.persona }, ...history]
+        }),
+        signal: ctrl.signal
+      });
+      if (!res.ok) {
+        if (my !== turn) return;
+        if (res.status === 401 || res.status === 403) return fail('Ключ API не подошёл. Проверьте его в настройках.');
+        if (res.status === 404) return fail('Модель не найдена. Проверьте её название в настройках.');
+        if (res.status === 429) return fail('Слишком много запросов или закончился лимит.');
+        return fail('Ошибка API: ' + res.status);
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let carry = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (my !== turn) return;
+        carry += dec.decode(value, { stream: true });
+        const lines = carry.split('\n'); carry = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const delta = JSON.parse(data).choices?.[0]?.delta?.content;
+            if (delta) { full += delta; buf += delta; flush(false); }
+          } catch (e) {}
+        }
+      }
+      if (my !== turn) return;
+      flush(true);
+      streamDone = true;
+      if (full) history.push({ role: 'assistant', content: full });
+      settle();
+    } catch (e) {
+      if (e.name === 'AbortError' || my !== turn) return;
+      streamDone = true;
+      fail('Не удалось связаться с API. Проверьте сеть и адрес в настройках.');
+    }
+  }
+
+  /* ---------- voice input ---------- */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  async function listen(){
+    if (NATIVE) { stopAll(); showUser(''); showBot(''); setState('listening'); AndroidBridge.listen(); return; }
+    if (!SR) { $('#typed').focus(); fail('Голосовой ввод недоступен в этом браузере. Напишите сообщение внизу.'); return; }
+    stopAll();
+    if (!window.isSecureContext || location.protocol === 'file:' || location.protocol === 'content:') {
+      fail('Микрофон не работает, когда страница открыта как файл. Откройте её по адресу https:// в Chrome.');
+      return;
+    }
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach(t => t.stop());
+    } catch (e) {
+      fail(e.name === 'NotAllowedError'
+        ? 'Нет доступа к микрофону. Разрешите его для этого сайта в настройках браузера.'
+        : 'Микрофон не найден или занят другим приложением.');
+      return;
+    }
+    const my = turn;
+    const r = new SR();
+    rec = r;
+    r.lang = 'ru-RU'; r.interimResults = true; r.continuous = false;
+    r.onresult = e => {
+      let interim = '', fin = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        (res.isFinal ? (fin += res[0].transcript) : (interim += res[0].transcript));
+      }
+      micBump = .3;
+      showUser(fin || interim);
+      if (fin) ask(fin);
+    };
+    r.onerror = e => {
+      if (e.error === 'no-speech') { setState('idle'); showUser(''); }
+      else if (e.error === 'not-allowed' || e.error === 'service-not-allowed') fail('Распознавание речи заблокировано. Разрешите микрофон для сайта и проверьте, что в телефоне включён голосовой ввод Google.');
+      else if (e.error === 'audio-capture') fail('Микрофон занят или недоступен. Закройте другие приложения, которые его используют.');
+      else if (e.error === 'network') fail('Для распознавания речи нужен интернет.');
+      else if (e.error !== 'aborted') fail('Микрофон недоступен: ' + e.error);
+    };
+    r.onend = () => { if (state === 'listening' && rec === r) setState('idle'); };
+    showUser(''); showBot('');
+    try { r.start(); setState('listening'); } catch (e) { fail('Не удалось включить микрофон.'); }
+  }
+
+  $('#hit').addEventListener('click', () => {
+    if (state === 'listening') { if (NATIVE) AndroidBridge.stopListen(); else if (rec) rec.stop(); return; }
+    if (state === 'speaking') { stopAll(); setState('idle'); listen(); return; }
+    if (state === 'thinking') { stopAll(); setState('idle'); return; }
+    listen();
+  });
+
+  $('#typed').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { const v = e.target.value; e.target.value = ''; ask(v); }
+  });
+
+  /* ---------- settings panel ---------- */
+  const panel = $('#panel'), gear = $('#gear');
+  const f = { key: $('#key'), model: $('#model'), base: $('#base'), persona: $('#persona'),
+              voice: $('#voice'), pitch: $('#pitch'), rate: $('#rate') };
+
+  function fillForm(){
+    f.key.value = cfg.key; f.model.value = cfg.model; f.base.value = cfg.base; f.persona.value = cfg.persona;
+    f.pitch.value = cfg.pitch; f.rate.value = cfg.rate; voiceSel.value = cfg.voice || '';
+    $('#pitchOut').textContent = (+cfg.pitch).toFixed(2); $('#rateOut').textContent = (+cfg.rate).toFixed(2);
+  }
+  function openPanel(){ fillForm(); panel.classList.add('open'); gear.setAttribute('aria-expanded', 'true'); loadModels(); }
+  function closePanel(){ panel.classList.remove('open'); gear.setAttribute('aria-expanded', 'false'); }
+  gear.addEventListener('click', () => panel.classList.contains('open') ? closePanel() : openPanel());
+  addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+  document.addEventListener('pointerdown', e => {
+    if (panel.classList.contains('open') && !panel.contains(e.target) && !gear.contains(e.target)) closePanel();
+  });
+
+  /* ---------- model list from the API ---------- */
+  const pick = $('#modelPick'), mStatus = $('#modelStatus');
+  let modelReq = 0, modelTimer = null;
+
+  function modelNote(text, bad){
+    mStatus.hidden = !text; mStatus.textContent = text || ''; mStatus.classList.toggle('bad', !!bad);
+  }
+
+  async function loadModels(){
+    const key = f.key.value.trim();
+    const base = f.base.value.trim().replace(/\/+$/, '');
+    const my = ++modelReq;
+    if (!key || !/^https?:\/\/.+/i.test(base)) { pick.hidden = true; modelNote(''); return; }
+    modelNote('Загружаю список моделей…');
+    try {
+      const res = await fetch(base + '/models', { headers: { 'Authorization': 'Bearer ' + key } });
+      if (my !== modelReq) return;
+      if (!res.ok) {
+        pick.hidden = true;
+        modelNote(res.status === 401 || res.status === 403
+          ? 'Ключ не подошёл, список моделей недоступен.'
+          : 'Адрес не отдал список моделей (' + res.status + '). Название можно ввести вручную.', true);
+        return;
+      }
+      const j = await res.json();
+      if (my !== modelReq) return;
+      let ids = (j.data || j.models || []).map(m => (typeof m === 'string' ? m : m.id || m.name)).filter(Boolean);
+      ids = [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+      const skip = /whisper|tts|embed|moderation|dall-e|image|transcribe|audio|realtime|guard|sora|rerank/i;
+      const chat = ids.filter(id => !skip.test(id));
+      const list = chat.length ? chat : ids;
+      if (!list.length) { pick.hidden = true; modelNote('Список моделей пуст. Название можно ввести вручную.', true); return; }
+      pick.innerHTML = '';
+      pick.add(new Option('Выберите из списка (' + list.length + ')', ''));
+      list.forEach(id => pick.add(new Option(id, id)));
+      pick.value = list.includes(f.model.value.trim()) ? f.model.value.trim() : '';
+      pick.hidden = false;
+      modelNote('');
+    } catch (e) {
+      if (my !== modelReq) return;
+      pick.hidden = true;
+      modelNote('Не удалось получить список моделей. Название можно ввести вручную.', true);
+    }
+  }
+  function scheduleModels(){ clearTimeout(modelTimer); modelTimer = setTimeout(loadModels, 700); }
+  f.base.addEventListener('input', scheduleModels);
+  f.key.addEventListener('input', scheduleModels);
+  f.base.addEventListener('change', loadModels);
+  f.key.addEventListener('change', loadModels);
+  pick.addEventListener('change', () => { if (pick.value) f.model.value = pick.value; });
+  f.model.addEventListener('input', () => {
+    const v = f.model.value.trim();
+    if (!pick.hidden) pick.value = [...pick.options].some(o => o.value === v) ? v : '';
+  });
+
+  f.pitch.addEventListener('input', () => $('#pitchOut').textContent = (+f.pitch.value).toFixed(2));
+  f.rate.addEventListener('input',  () => $('#rateOut').textContent  = (+f.rate.value).toFixed(2));
+
+  function readForm(){
+    cfg = {
+      key: f.key.value.trim(),
+      model: f.model.value.trim() || DEFAULTS.model,
+      base: f.base.value.trim() || DEFAULTS.base,
+      persona: f.persona.value.trim() || DEFAULTS.persona,
+      voice: voiceSel.value,
+      pitch: +f.pitch.value,
+      rate: +f.rate.value
+    };
+  }
+  $('#save').addEventListener('click', () => {
+    readForm();
+    try { localStorage.setItem('orb.settings', JSON.stringify(cfg)); } catch (e) {}
+    closePanel();
+    showBot(cfg.key ? 'Готово. Нажмите на шар и говорите.' : 'Ключ пока не указан.');
+  });
+  $('#test').addEventListener('click', () => {
+    readForm(); stopAll();
+    const tag = turn;
+    setTimeout(() => speak('Привет! Я твой говорящий шар.', tag), 120);
+  });
+
+  /* ---------- first run ---------- */
+  showBot(cfg.key ? 'Нажмите на шар и говорите.' : 'API не подключён. Кнопка скрыта в правом верхнем углу.');
+  if (!gl) showBot('Браузер не поддерживает WebGL, шар не отобразится.', true);
+})();
+</script>
+</body>
+</html>
